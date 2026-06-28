@@ -9,11 +9,11 @@ const DIRECTIONS = ['north', 'south', 'east', 'west'];
 const OPPOSITE = { north: 'south', south: 'north', east: 'west', west: 'east' };
 
 const MONSTERS = [
-  { name: '哥布林', hp: 20, atk: 5, exp: 10 },
-  { name: '骷髅兵', hp: 30, atk: 7, exp: 15 },
-  { name: '蝙蝠', hp: 10, atk: 3, exp: 5 },
-  { name: '巨型蜘蛛', hp: 25, atk: 6, exp: 12 },
-  { name: '暗影刺客', hp: 40, atk: 10, exp: 25 },
+  { name: '哥布林', hp: 20, atk: 5, exp: 10, goldMin: 3, goldMax: 8 },
+  { name: '骷髅兵', hp: 30, atk: 7, exp: 15, goldMin: 5, goldMax: 12 },
+  { name: '蝙蝠', hp: 10, atk: 3, exp: 5, goldMin: 1, goldMax: 4 },
+  { name: '巨型蜘蛛', hp: 25, atk: 6, exp: 12, goldMin: 4, goldMax: 10 },
+  { name: '暗影刺客', hp: 40, atk: 10, exp: 25, goldMin: 10, goldMax: 20 },
 ];
 
 const ITEMS = {
@@ -22,7 +22,16 @@ const ITEMS = {
   sword: { name: '铁剑', type: 'weapon', atk: 5, desc: '攻击力+5' },
   axe: { name: '战斧', type: 'weapon', atk: 8, desc: '攻击力+8' },
   dagger: { name: '匕首', type: 'weapon', atk: 3, desc: '攻击力+3' },
+  greatsword: { name: '巨剑', type: 'weapon', atk: 12, desc: '攻击力+12（商店限定）' },
 };
+
+const SHOP_ITEMS = [
+  { id: 'potion', price: 15 },
+  { id: 'key', price: 10 },
+  { id: 'sword', price: 30 },
+  { id: 'axe', price: 50 },
+  { id: 'greatsword', price: 90 },
+];
 
 const ROOM_DESC = [
   '一间阴暗潮湿的石室，墙壁上爬满了青苔。',
@@ -76,12 +85,19 @@ function generateMap() {
       trap: null,
       isExit: false,
       isStart: i === 0,
+      isShop: false,
       visited: false,
     });
   }
 
   rooms[0].visited = true;
   rooms[roomCount - 1].isExit = true;
+
+  const shopCandidates = [];
+  for (let i = 1; i < roomCount - 1; i++) shopCandidates.push(i);
+  const shopId = choice(shopCandidates);
+  rooms[shopId].isShop = true;
+  rooms[shopId].desc = '一间点着暖黄油灯的小屋，柜台后站着一位神秘商人。墙上挂满了各式武器和药水。';
 
   const visited = [0];
   const unvisited = [];
@@ -111,6 +127,7 @@ function generateMap() {
 
   for (let i = 1; i < roomCount - 1; i++) {
     const r = rooms[i];
+    if (r.isShop) continue;
     const roll = Math.random();
     if (roll < 0.45) {
       const m = choice(MONSTERS);
@@ -166,6 +183,46 @@ function addItem(player, itemId) {
   return { success: true, msg: `获得了 ${chalk.yellow(ITEMS[itemId].name)}！` };
 }
 
+function describeShop(player) {
+  const W = 43;
+  const pad = (s, len) => {
+    let plain = s.replace(/\u001b\[[0-9;]*m/g, '');
+    return s + ' '.repeat(Math.max(0, len - plain.length));
+  };
+  const border = chalk.yellow('╔' + '═'.repeat(W) + '╗');
+  const borderEnd = chalk.yellow('╚' + '═'.repeat(W) + '╝');
+  const line = chalk.yellow('╠' + '═'.repeat(W) + '╣');
+  const wrap = (content) => chalk.yellow('║') + content + chalk.yellow('║');
+
+  let out = `\n${border}\n`;
+  out += wrap(pad('          ' + chalk.white.bold('🛒  地  牢  商  店'), W)) + '\n';
+  out += line + '\n';
+  out += wrap(pad('  ' + chalk.white('你的金币:') + ' ' + chalk.yellow('💰 ' + player.gold), W)) + '\n';
+  out += line + '\n';
+  SHOP_ITEMS.forEach((s, i) => {
+    const it = ITEMS[s.id];
+    const row = '  ' + chalk.white(String(i + 1).padStart(2, ' ') + '.') + ' ' +
+      chalk.yellow(it.name.padEnd(6, ' ')) + '  ' +
+      chalk.gray(it.desc.padEnd(18, ' ')) + '  ' +
+      chalk.yellow('💰' + String(s.price).padStart(3, ' '));
+    out += wrap(pad(row, W)) + '\n';
+  });
+  out += line + '\n';
+  out += wrap(pad('  ' + chalk.gray('输入: buy potion / buy sword 等'), W)) + '\n';
+  out += borderEnd;
+  return out;
+}
+
+function buyItem(player, itemId) {
+  const entry = SHOP_ITEMS.find(s => s.id === itemId);
+  if (!entry) return { success: false, msg: '商店里没有这件商品。' };
+  if (player.gold < entry.price) return { success: false, msg: `金币不足！需要 ${entry.price} 金币。` };
+  if (player.inventory.length >= 5) return { success: false, msg: '背包已满！最多5格。' };
+  player.gold -= entry.price;
+  player.inventory.push(itemId);
+  return { success: true, msg: `购买成功！花费 ${entry.price} 金币，获得了 ${chalk.yellow(ITEMS[itemId].name)}。剩余金币: ${player.gold}` };
+}
+
 function describeRoom(rooms, player) {
   const room = rooms[player.currentRoom];
   let out = '\n' + chalk.gray('═══════════════════════════════════') + '\n';
@@ -176,6 +233,9 @@ function describeRoom(rooms, player) {
     out += chalk.gray(`可见出口: ${exits.map(e => chalk.white(e)).join('、')}`) + '\n';
   }
 
+  if (room.isShop) {
+    out += chalk.yellow('🛒  这里是地牢商店！输入 "shop" 查看商品，"buy [物品名]" 购买。') + '\n';
+  }
   if (room.monster) {
     out += chalk.red(`⚠  一只 ${room.monster.name} 出现了！(HP:${room.monster.hp}/${room.monster.maxHp} ATK:${room.monster.atk})`) + '\n';
   }
@@ -201,7 +261,7 @@ function describePlayer(player) {
   const inv = player.inventory.length > 0
     ? player.inventory.map(id => chalk.yellow(ITEMS[id].name)).join('、')
     : chalk.gray('空');
-  return `${chalk.white('【状态】')} HP:${chalk.red(player.hp + '/' + player.maxHp)}  ATK:${chalk.red(getPlayerAtk(player))}  武器:${chalk.yellow(weapon)}\n${chalk.white('【背包】')} (${player.inventory.length}/5) ${inv}`;
+  return `${chalk.white('【状态】')} HP:${chalk.red(player.hp + '/' + player.maxHp)}  ATK:${chalk.red(getPlayerAtk(player))}  武器:${chalk.yellow(weapon)}  ${chalk.yellow('金币:' + player.gold)}\n${chalk.white('【背包】')} (${player.inventory.length}/5) ${inv}`;
 }
 
 function combat(rooms, player, rl, onDone) {
@@ -221,6 +281,11 @@ function combat(rooms, player, rl, onDone) {
         console.log(chalk.red(`你对 ${monster.name} 造成了 ${dmg} 点伤害！`));
         if (monster.hp <= 0) {
           console.log(chalk.red(`${monster.name} 被击败了！`));
+          if (Math.random() < 0.8) {
+            const gold = randInt(monster.goldMin, monster.goldMax);
+            player.gold += gold;
+            console.log(chalk.yellow(`💰  获得了 ${gold} 枚金币！当前金币: ${player.gold}`));
+          }
           room.monster = null;
           onDone('win');
           return;
@@ -455,6 +520,31 @@ function processCommand(rooms, player, rl, cmd, onLoop, onExit) {
       }
       break;
     }
+    case 'shop':
+    case 's': {
+      if (!room.isShop) {
+        console.log(chalk.red('这里不是商店。'));
+        break;
+      }
+      console.log(describeShop(player));
+      break;
+    }
+    case 'buy':
+    case 'b': {
+      if (!room.isShop) {
+        console.log(chalk.red('这里不是商店，无法购买。'));
+        break;
+      }
+      const item = parts[1];
+      if (!item) {
+        console.log(chalk.red('请输入要购买的物品，例如: buy potion'));
+        console.log(describeShop(player));
+        break;
+      }
+      const r = buyItem(player, item);
+      console.log(r.success ? chalk.yellow(r.msg) : chalk.red(r.msg));
+      break;
+    }
     case 'inventory':
     case 'inv':
     case 'i': {
@@ -478,6 +568,7 @@ function processCommand(rooms, player, rl, cmd, onLoop, onExit) {
       }
       console.log(chalk.yellow('\n★  恭喜你逃出了地牢！你胜利了！\n'));
       console.log(chalk.white(`死亡次数: ${player.deaths}`));
+      console.log(chalk.white(`剩余金币: ${player.gold}`));
       onExit();
       return;
     }
@@ -489,7 +580,9 @@ function processCommand(rooms, player, rl, cmd, onLoop, onExit) {
       console.log('  use [potion/key/武器名]     - 使用或装备物品');
       console.log('  open                        - 打开宝箱');
       console.log('  flee / f                    - 战斗中逃跑');
-      console.log('  inventory / inv / i         - 查看背包和状态');
+      console.log('  shop / s                    - 在商店查看商品');
+      console.log('  buy [物品名] / b [物品名]   - 在商店购买物品 (例: buy potion)');
+      console.log('  inventory / inv / i         - 查看背包和状态(含金币)');
       console.log('  look / l                    - 查看当前房间');
       console.log('  save                        - 保存游戏');
       console.log('  exit                        - 在出口离开地牢');
@@ -535,4 +628,4 @@ function main() {
   });
 }
 
-module.exports = { main, generateMap, createPlayer, saveGame, loadGame };
+module.exports = { main, generateMap, createPlayer, saveGame, loadGame, buyItem, describeShop };
