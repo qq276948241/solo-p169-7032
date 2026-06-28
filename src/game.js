@@ -4,7 +4,7 @@ const path = require('path');
 const readline = require('readline');
 
 const { DIRECTIONS, ITEMS } = require('./data');
-const { createPlayer, getPlayerAtk, addItem, describePlayer } = require('./player');
+const { createPlayer, getPlayerAtk, addItem, useItem, describePlayer } = require('./player');
 const { generateMap, describeRoom } = require('./map');
 const { combat, handleDeath } = require('./combat');
 const { describeShop, buyItem } = require('./shop');
@@ -122,17 +122,11 @@ function processCommand(rooms, player, rl, cmd, onLoop, onExit) {
     }
     case 'use': {
       const item = parts[1];
-      if (item === 'potion') {
-        const idx = player.inventory.indexOf('potion');
-        if (idx === -1) {
-          console.log(chalk.red('你没有血瓶！'));
-          break;
-        }
-        player.inventory.splice(idx, 1);
-        const heal = ITEMS.potion.heal;
-        player.hp = Math.min(player.maxHp, player.hp + heal);
-        console.log(chalk.yellow(`使用了血瓶，恢复了 ${heal} 点HP！当前HP: ${player.hp}/${player.maxHp}`));
-      } else if (item === 'key') {
+      if (!item) {
+        console.log(chalk.red('请输入要使用的物品，例如: use potion'));
+        break;
+      }
+      if (item === 'key') {
         if (!room.chest || room.chest.opened) {
           console.log(chalk.red('这里没有可开启的宝箱。'));
           break;
@@ -149,22 +143,9 @@ function processCommand(rooms, player, rl, cmd, onLoop, onExit) {
         player.inventory.splice(idx, 1);
         room.chest.locked = false;
         console.log(chalk.yellow('你用钥匙打开了宝箱！现在可以用 open 打开。'));
-      } else if (item && ITEMS[item] && ITEMS[item].type === 'weapon') {
-        const idx = player.inventory.indexOf(item);
-        if (idx === -1) {
-          console.log(chalk.red('你没有这件武器。'));
-          break;
-        }
-        if (player.weapon) {
-          if (player.inventory.length >= 5) {
-            console.log(chalk.red('背包已满，无法换下当前武器。'));
-            break;
-          }
-          player.inventory.push(player.weapon);
-        }
-        player.inventory.splice(idx, 1);
-        player.weapon = item;
-        console.log(chalk.yellow(`装备了 ${ITEMS[item].name}！攻击力变为 ${getPlayerAtk(player)}`));
+      } else if (item === 'potion' || (ITEMS[item] && ITEMS[item].type === 'weapon')) {
+        const r = useItem(player, item);
+        console.log(r.success ? chalk.yellow(r.msg) : chalk.red(r.msg));
       } else {
         console.log(chalk.red('无法使用该物品。'));
       }
